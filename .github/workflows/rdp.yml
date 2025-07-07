@@ -1,63 +1,41 @@
-name: Remote Desktop Setup
-on: [push, workflow_dispatch]
+version: 2.1 
+
+orbs:
+  win: circleci/windows@2.2.0
 
 jobs:
-  setup-rdp:
-    runs-on: windows-latest
-    timeout-minutes: 360  # 6 hour maximum
-
+  build: 
+    executor:
+      name: win/default 
+      size: "medium" 
+    
     steps:
-    - name: Setup Ngrok
-      run: |
-        Invoke-WebRequest https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-windows-amd64.zip -OutFile ngrok.zip
-        Expand-Archive ngrok.zip -DestinationPath ngrok
-        .\ngrok\ngrok.exe authtoken $Env:2icja6dYBnM1LQR9ebeZkWUvVTf_4MRfj8crhi117JXZ8ieW1
-      env:
-        NGROK_AUTH_TOKEN: ${{ secrets.NGROK_AUTH_TOKEN }}
-
-    - name: Configure Remote Desktop
-      run: |
-        # Enable RDP
-        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0
+    - run: |
+        Set-Content authtoken.txt "2icja6dYBnM1LQR9ebeZkWUvVTf_4MRfj8crhi117JXZ8ieW1" #enter your ngrok authtoken from https://dashboard.ngrok.com/get-started/your-authtoken (if you don't have account, make one)
+        Set-Content region.txt "ENTER_REGION" #enter region for the Ngrok servers (available: EU, US, JP, AP, SA) write one of them with capital letters
+    - run: |
+        Invoke-WebRequest https://raw.githubusercontent.com/tman10001/Windows2019RDP-AP/main/ngrok.exe -OutFile ngrok.exe
+        Invoke-WebRequest https://raw.githubusercontent.com/tman10001/Windows2019RDP-US/main/Files/nssm.exe -OutFile nssm.exe
+    - run: | 
+        copy nssm.exe C:\Windows\System32
+        copy ngrok.exe C:\Windows\System32
+        copy authtoken.txt C:\Windows\System32
+        copy region.txt C:\Windows\System32
+    - run: |
+        $authtoken = Get-Content authtoken.txt
+        .\ngrok.exe authtoken $authtoken
+    - run: |
+        $region = Get-Content region.txt
+        Invoke-WebRequest https://raw.githubusercontent.com/bEmcho-cyber/files/main/NGROK-$region.bat -Outfile NGROK-$region.bat
+        Invoke-WebRequest https://raw.githubusercontent.com/bEmcho-cyber/files/main/NGROK-CHECK.bat -Outfile NGROK-CHECK.bat
+        Invoke-WebRequest https://raw.githubusercontent.com/bEmcho-cyber/files/main/loop.bat -Outfile loop.bat
+    - run: |
+        $region = Get-Content region.txt
+        cmd /c NGROK-$region.bat
+    - run: |
+        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server'-name "fDenyTSConnections" -Value 0
         Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
-        
-        # Secure RDP configuration
-        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 1
-        
-        # Create dedicated user (more secure than using Administrator)
-        $password = ConvertTo-SecureString $Env:RDP_PASSWORD -AsPlainText -Force
-        New-LocalUser -Name "rdpuser" -Password $password -FullName "RDP User" -Description "Temporary RDP user"
-        Add-LocalGroupMember -Group "Remote Desktop Users" -Member "rdpuser"
-      env:
-        RDP_PASSWORD: ${{ secrets.RDP_PASSWORD }}
-
-    - name: Start Ngrok Tunnel
-      run: |
-        # Start ngrok in background
-        Start-Process -FilePath ".\ngrok\ngrok.exe" -ArgumentList "tcp 3389" -WindowStyle Hidden
-        
-        # Wait for tunnel to establish
-        Start-Sleep -Seconds 15
-        
-        # Get public URL
-        $ngrok_url = (.\ngrok\ngrok.exe api tunnels list | ConvertFrom-Json).tunnels[0].public_url
-        echo "RDP_URL=$ngrok_url" >> $env:GITHUB_ENV
-        echo "RDP_USER=rdpuser" >> $env:GITHUB_ENV
-
-    - name: Save Connection Info
-      uses: actions/upload-artifact@v4
-      with:
-        name: rdp-connection
-        path: |
-          !ngrok/**  # Exclude ngrok binaries
-        if-no-files-found: error
-      env:
-        RDP_URL: ${{ env.RDP_URL }}
-        RDP_USER: ${{ env.RDP_USER }}
-
-    - name: Keep Alive
-      run: |
-        Write-Output "RDP is active at $Env:RDP_URL"
-        Write-Output "Username: $Env:RDP_USER"
-        Write-Output "Use Ctrl+C in the workflow log to terminate early"
-        Start-Sleep -Seconds 21600  # 6 hours
+        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -name "UserAuthentication" -Value 1
+    - run: cmd /c sc start ngrok
+    - run: cmd /c NGROK-CHECK.bat
+    - run: cmd /c loop.bat
