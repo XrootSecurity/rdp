@@ -7,37 +7,36 @@ jobs:
     steps:
       - name: Setup RDP
         run: |
-          # Set password untuk RDP (ganti 'password' dengan kata sandi Anda)
-          $password = "rootsec"
+          # Set password (change 'YourPassword123!' to your own)
+          $password = "YourPassword123!"
           net user Administrator $password
-          
-          # Aktifkan RDP
+
+          # Enable RDP
           Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Terminal Server" -Name "fDenyTSConnections" -Value 0
           Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
-          
-          # Tampilkan alamat IP (untuk debug)
-          ipconfig
-          
-          # Jalankan ngrok untuk tunneling (ganti 'YOUR_NGROK_TOKEN' dengan token Anda)
+
+          # Install & Configure Ngrok (replace YOUR_NGROK_TOKEN)
           Invoke-WebRequest -Uri "https://bin.equinox.io/c/4VmDzA7iaHb/ngrok-stable-windows-amd64.zip" -OutFile "ngrok.zip"
           Expand-Archive -Path "ngrok.zip" -DestinationPath .
           ./ngrok authtoken 2icja6dYBnM1LQR9ebeZkWUvVTf_4MRfj8crhi117JXZ8ieW1
           ./ngrok tcp 3389 --log=stdout > ngrok.log &
-          
-          # Simpan informasi koneksi ke dalam artifact
+
+          # Wait for Ngrok to start and extract the public URL
           Start-Sleep -Seconds 10
           $ngrok_url = (Get-Content ngrok.log | Select-String -Pattern "tcp.ngrok.io.*" | Select-Object -First 1).ToString().Split(" ")[-1]
-          echo "RDP Address: $ngrok_url" | Out-File -FilePath rdp_info.txt
-          echo "Username: Administrator" | Out-File -FilePath rdp_info.txt -Append
-          echo "Password: $password" | Out-File -FilePath rdp_info.txt -Append
           
-      - name: Upload RDP Info
-        uses: actions/upload-artifact@v2
+          # Save connection details
+          echo "RDP Address: $ngrok_url" > rdp_info.txt
+          echo "Username: Administrator" >> rdp_info.txt
+          echo "Password: $password" >> rdp_info.txt
+
+      - name: Upload RDP Connection Info
+        uses: actions/upload-artifact@v4
         with:
-          name: rdp-connection-info
+          name: rdp-connection-details
           path: rdp_info.txt
-          
-      - name: Keep Alive
+
+      - name: Keep Session Alive
         run: |
-          # Jaga VM tetap aktif selama 6 jam (maksimal waktu eksekusi GitHub Actions)
+          # Keep the VM running for 6 hours (GitHub's max job duration)
           Start-Sleep -Seconds 21600
