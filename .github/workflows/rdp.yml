@@ -1,0 +1,43 @@
+name: RDP via GitHub Actions
+on: workflow_dispatch
+
+jobs:
+  rdp:
+    runs-on: windows-latest
+    steps:
+      - name: Setup RDP
+        run: |
+          # Set password untuk RDP (ganti 'password' dengan kata sandi Anda)
+          $password = "rootsec"
+          net user Administrator $password
+          
+          # Aktifkan RDP
+          Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Terminal Server" -Name "fDenyTSConnections" -Value 0
+          Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+          
+          # Tampilkan alamat IP (untuk debug)
+          ipconfig
+          
+          # Jalankan ngrok untuk tunneling (ganti 'YOUR_NGROK_TOKEN' dengan token Anda)
+          Invoke-WebRequest -Uri "https://bin.equinox.io/c/4VmDzA7iaHb/ngrok-stable-windows-amd64.zip" -OutFile "ngrok.zip"
+          Expand-Archive -Path "ngrok.zip" -DestinationPath .
+          ./ngrok authtoken 2icja6dYBnM1LQR9ebeZkWUvVTf_4MRfj8crhi117JXZ8ieW1
+          ./ngrok tcp 3389 --log=stdout > ngrok.log &
+          
+          # Simpan informasi koneksi ke dalam artifact
+          Start-Sleep -Seconds 10
+          $ngrok_url = (Get-Content ngrok.log | Select-String -Pattern "tcp.ngrok.io.*" | Select-Object -First 1).ToString().Split(" ")[-1]
+          echo "RDP Address: $ngrok_url" | Out-File -FilePath rdp_info.txt
+          echo "Username: Administrator" | Out-File -FilePath rdp_info.txt -Append
+          echo "Password: $password" | Out-File -FilePath rdp_info.txt -Append
+          
+      - name: Upload RDP Info
+        uses: actions/upload-artifact@v2
+        with:
+          name: rdp-connection-info
+          path: rdp_info.txt
+          
+      - name: Keep Alive
+        run: |
+          # Jaga VM tetap aktif selama 6 jam (maksimal waktu eksekusi GitHub Actions)
+          Start-Sleep -Seconds 21600
